@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KillSwitch Gateway</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--bg:#0b1220;--panel:#111a2e;--line:#1f2d4a;--text:#e6edf7;--mute:#8aa0c2;
+        --ok:#2fd18b;--warn:#ffb454;--bad:#ff5d6c;--info:#5cb8ff;--accent:#ff9f5a}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:14px 22px;border-bottom:1px solid var(--line)}
+  h1{font-size:18px;margin:0} h1 span{color:var(--accent)}
+  .pill{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--line)}
+  .ok{color:var(--ok);border-color:var(--ok)} .bad{color:var(--bad);border-color:var(--bad)}
+  .warn{color:var(--warn);border-color:var(--warn)} .info{color:var(--info);border-color:var(--info)}
+  .spacer{flex:1} button{background:#18243f;color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600}
+  button:hover{border-color:var(--accent)} button.danger{border-color:var(--bad);color:var(--bad)}
+  button.good{border-color:var(--ok);color:var(--ok)} button.primary{background:var(--accent);color:#1a1006;border:0}
+  main{display:grid;grid-template-columns:340px 1fr 330px;gap:14px;padding:14px 22px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .panel h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+  .agent{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+  .agent.q{border-color:var(--bad);background:#2a1119}
+  .agent .top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .agent .name{font-weight:700;font-size:15px} .stats{color:var(--mute);font-size:12px;margin:4px 0 8px}
+  .scope{color:var(--mute);font-size:11px;margin-bottom:8px}
+  .btns{display:flex;gap:6px;flex-wrap:wrap}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--mute);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line)}
+  td{padding:5px 6px;border-bottom:1px solid #16213a;vertical-align:top}
+  tr.blocked td{background:#2a1119} tr.flag td{background:#2a2111} tr.rb td{opacity:.45;text-decoration:line-through}
+  tr.sys td{color:var(--info)}
+  .tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;margin:1px 2px 1px 0;font-weight:600}
+  .t-critical{background:#4a1520;color:#ff8c98}.t-high{background:#4a3315;color:#ffc27a}
+  .t-medium{background:#1d3550;color:#8cc8ff}.t-blocked{background:#4a1520;color:#ff8c98}
+  .kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #16213a}
+  .kv b{font-variant-numeric:tabular-nums}
+  .inc{border-left:3px solid var(--bad);padding:6px 10px;margin-bottom:8px;background:#1a1426;border-radius:0 8px 8px 0}
+  .inc.rb{border-color:var(--ok)} .inc small{color:var(--mute)}
+  .ttc{font-size:22px;font-weight:800;color:var(--accent)}
+  #modal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:9}
+  #modal .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;
+    width:min(760px,92vw);max-height:84vh;overflow:auto}
+  code{background:#0b1220;padding:1px 5px;border-radius:4px;font-size:12px}
+  .mute{color:var(--mute)} .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .big{font-size:20px;font-weight:800}
+</style>
+</head>
+<body>
+<header>
+  <h1>Kill<span>Switch</span> Gateway</h1>
+  <span id="chain" class="pill">chain…</span>
+  <span id="pol" class="pill info">policy</span>
+  <div class="spacer"></div>
+  <button onclick="runAudit()">Run state audit</button>
+  <button onclick="toggle('auto_rollback')" id="btnAR">Auto-rollback: …</button>
+  <button class="danger" onclick="resetDemo()">Reset demo</button>
+</header>
+<main>
+  <section class="panel"><h2>Agents</h2><div id="agents"></div></section>
+  <section class="panel"><h2>Live action ledger <span class="mute">(hash-chained, newest first)</span></h2>
+    <table><thead><tr><th>#</th><th>time</th><th>agent</th><th>action</th><th>verdict</th></tr></thead>
+    <tbody id="ledger"></tbody></table></section>
+  <section>
+    <div class="panel" style="margin-bottom:14px"><h2>Time to containment</h2>
+      <div class="ttc" id="ttc">—</div><div class="mute" id="ttcsub">no incident yet</div></div>
+    <div class="panel" style="margin-bottom:14px"><h2>Incidents</h2><div id="events"></div></div>
+    <div class="panel"><h2>Business state</h2><div id="biz"></div></div>
+  </section>
+</main>
+<div id="modal" onclick="if(event.target.id==='modal')closeModal()"><div class="box" id="box"></div></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let S=null;
+const fmt=t=>new Date(t*1000).toLocaleTimeString([], {hour12:false});
+const api=(p,o)=>fetch(p,o).then(r=>r.json());
+function summary(e){
+  const a=e.args||{}; const bits=Object.entries(a).map(([k,v])=>k+'='+(String(v).length>34?String(v).slice(0,34)+'…':v));
+  return '<b>'+esc(e.tool)+'</b> <span class="mute">'+esc(bits.join(' '))+'</span>';
+}
+function render(){
+  if(!S) return;
+  const c=S.chain; $('chain').className='pill '+(c.ok?'ok':'bad');
+  $('chain').textContent=c.ok?('ledger intact · '+c.length+' entries'):('LEDGER TAMPERED at #'+c.broken_at);
+  $('pol').textContent='auto-quarantine '+(S.policy.auto_quarantine?'ON':'OFF');
+  $('btnAR').textContent='Auto-rollback: '+(S.policy.auto_rollback?'ON':'OFF');
+  $('agents').innerHTML=Object.entries(S.agents).map(([n,a])=>{
+    const q=a.status==='quarantined';
+    return `<div class="agent ${q?'q':''}"><div class="top"><span class="name">${esc(n)}</span>
+      <span class="pill ${q?'bad':'ok'}">${q?'QUARANTINED':'active'}</span>
+      ${a.tainted?'<span class="pill warn">tainted</span>':''}</div>
+      ${q?`<div class="mute" style="font-size:12px;margin-bottom:6px">${esc(a.reason)}</div>`:''}
+      <div class="stats">${a.total} calls · ${a.writes} writes · ${a.flagged} flagged · ${a.blocked} blocked · ${a.rolled_back} rolled back</div>
+      <div class="scope">scope: ${esc(a.scope.join(', '))}</div>
+      <div class="btns">
+        ${q?`<button class="good" onclick="act('${n}','release')">Release</button>`
+           :`<button class="danger" onclick="act('${n}','quarantine')">Kill switch</button>`}
+        <button onclick="preview('${n}')">Preview rollback</button>
+      </div></div>`;}).join('');
+  $('ledger').innerHTML=S.ledger.map(e=>{
+    const fl=(e.flags||[]).map(f=>`<span class="tag t-${f.sev}" title="${esc(f.msg)}">${esc(f.rule)}</span>`).join('');
+    const cls=e.decision==='blocked'?'blocked':(e.status==='rolled_back'?'rb':(fl?'flag':(e.agent==='gateway'?'sys':'')));
+    const verdict=(e.decision!=='allowed'?`<span class="tag t-blocked">${e.decision}</span>`:'')+fl+
+       (e.status==='rolled_back'?'<span class="tag t-medium">rolled back</span>':'');
+    return `<tr class="${cls}"><td>${e.seq}</td><td>${fmt(e.ts)}</td><td>${esc(e.agent)}</td><td>${summary(e)}</td><td>${verdict}</td></tr>`;
+  }).join('');
+  const ev=S.events.filter(e=>e.kind!=='release');
+  $('events').innerHTML=ev.length?ev.map(e=>{
+    const d=e.detail;
+    if(e.kind==='quarantine') return `<div class="inc"><b>${esc(e.agent)} quarantined</b> <small>${fmt(e.ts)}</small><br>
+       <small>${esc(d.rule||'manual')} · ${d.time_to_containment_ms!=null?d.time_to_containment_ms+' ms from onset':''}</small></div>`;
+    return `<div class="inc rb"><b>${esc(e.agent)} rolled back</b> <small>${fmt(e.ts)}</small><br>
+       <small>${d.actions} actions · ${d.restores} fields restored · ${d.deletes} rows removed · ${d.healthy_preserved} healthy actions preserved</small></div>`;
+  }).join(''):'<span class="mute">none</span>';
+  const q=S.events.find(e=>e.kind==='quarantine'&&e.detail.time_to_containment_ms!=null);
+  if(q){$('ttc').textContent=(q.detail.time_to_containment_ms/1000).toFixed(2)+' s';
+        $('ttcsub').textContent='latest incident · '+q.agent+' · '+(q.detail.rule||'manual');}
+  const b=S.budget, cn=S.counts;
+  $('biz').innerHTML=Object.entries(b).map(([k,v])=>`<div class="kv"><span>budget · ${k}</span><b>${v.toLocaleString()}</b></div>`).join('')+
+    `<div class="kv"><span>customers</span><b>${cn.customers}</b></div>
+     <div class="kv"><span>orders</span><b>${cn.orders}</b></div>
+     <div class="kv"><span>reports</span><b>${cn.reports}</b></div>
+     <div class="kv"><span>emails changed away from example.com</span><b style="color:${cn.non_example_emails?'var(--bad)':'var(--ok)'}">${cn.non_example_emails}</b></div>`;
+}
+async function tick(){ try{ S=await api('/api/state'); render(); }catch(e){} }
+setInterval(tick,1000); tick();
+
+async function act(n,what){ await api(`/api/agents/${n}/${what}`,{method:'POST'}); tick(); }
+async function toggle(k){ await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({[k]:!S.policy[k]})}); tick(); }
+async function resetDemo(){ if(confirm('Wipe all data and the ledger?')){ await api('/admin/reset',{method:'POST'}); tick(); } }
+function closeModal(){ $('modal').style.display='none'; }
+function show(html){ $('box').innerHTML=html+'<div style="margin-top:14px"><button onclick="closeModal()">Close</button></div>'; $('modal').style.display='flex'; }
+
+async function preview(n){
+  const p=await api(`/api/agents/${n}/rollback/preview`);
+  if(!p.bad_actions.length){ show(`<h3>${esc(n)}</h3><p class="mute">Nothing to roll back: no active state-changing actions in the damage window.</p>`); return; }
+  const rows=p.restores.map(r=>`<tr><td><code>${esc(r.t)}#${esc(r.pk)}.${esc(r.f)}</code></td><td>${esc(r.current===''?'(empty)':r.current)}</td><td>${esc(r.restored===''?'(empty)':r.restored)}</td>
+     <td>${r.healthy_changes_kept.length?'keeps '+r.healthy_changes_kept.length+' healthy change(s)':''}</td></tr>`).join('');
+  show(`<h3>Rollback preview · ${esc(n)}</h3>
+    <div class="grid2" style="margin-bottom:12px">
+      <div class="panel"><div class="big">${p.bad_actions.length}</div>actions will be reverted (from #${p.since_seq})</div>
+      <div class="panel"><div class="big" style="color:var(--ok)">${p.healthy_actions_preserved}</div>healthy actions from other agents preserved</div></div>
+    <table><thead><tr><th>field</th><th>now</th><th>restored to</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan=4 class="mute">no field restores</td></tr>'}</tbody></table>
+    ${p.deletes.length?`<p>${p.deletes.length} row(s) created by this agent will be removed.</p>`:''}
+    ${p.dependents_needing_review.length?`<p class="mute">⚠ ${p.dependents_needing_review.length} healthy action(s) touched rows this agent created — review.</p>`:''}
+    <div style="margin-top:12px"><button class="primary" onclick="doRollback('${n}')">Execute rollback</button></div>`);
+}
+async function doRollback(n){
+  const r=await api(`/api/agents/${n}/rollback`,{method:'POST'});
+  show(`<h3>Rollback complete · ${esc(n)}</h3>
+    <p><b>${r.bad_actions.length}</b> actions reverted, <b>${r.restores.length}</b> fields restored, <b>${r.deletes.length}</b> rows removed.
+    <b style="color:var(--ok)">${r.healthy_actions_preserved}</b> healthy actions preserved.</p>${auditHtml(r.audit)}`);
+  tick();
+}
+function auditHtml(a){
+  return a.ok?`<div class="inc rb"><b>State audit passed</b><br><small>${a.checked} fields/rows recomputed independently from the ledger — zero drift.</small></div>`
+    :`<div class="inc"><b>Audit found drift</b><br><small>${a.drift.map(d=>esc(d.field)+': expected '+esc(d.expected)+' got '+esc(d.live)).join('<br>')}</small></div>`;
+}
+async function runAudit(){ show('<h3>State audit</h3>'+auditHtml(await api('/api/audit'))); }
+</script>
+</body>
+</html>
